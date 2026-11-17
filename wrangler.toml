@@ -1,0 +1,14 @@
+name = "veldaroq-farm-plan"
+main = "worker/src/index.js"
+compatibility_date = "2026-11-17"
+
+[vars]
+ALLOWED_ORIGIN = "https://gerrard-lewu.github.io"
+
+# Configure a Cloudflare Workers Rate Limiting binding before production.
+# Replace the placeholder namespace_id with a namespace created for your account.
+[[unsafe.bindings]]
+type = "ratelimit"
+name = "LIMIT"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
