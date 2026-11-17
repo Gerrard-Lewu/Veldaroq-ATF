@@ -1,4 +1,5 @@
 const form = document.querySelector("#farm-form");
+const formCard = document.querySelector("#farm-form");
 const resultArea = document.querySelector("#result-area");
 const emptyState = document.querySelector("#empty-state");
 const loading = document.querySelector("#loading");
@@ -23,6 +24,13 @@ const FIELD_RULES = {
 
 function normalizeLine(line) {
   return cleanText(line).replace(/^[-*•]\s*/, "").replace(/^\d+[.)]\s*/, "").trim();
+}
+
+function setFormSticky() {
+  if (!formCard) return;
+  const shouldStick = window.innerHeight >= 1000;
+  formCard.classList.toggle("is-sticky", shouldStick);
+  formCard.style.top = shouldStick ? "18px" : "";
 }
 
 function showState(state) {
@@ -103,7 +111,7 @@ function parseSections(text) {
   let current = "";
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
-    const heading = line.match(/^#{1,3}\s*(.+?)\s*#*$|^(?:\*\*)?(Suitability|Planting window|Getting started|Budget|Buying list)(?:\s*\([^)]*\))?(?:\*\*)?:?$/i);
+    const heading = line.match(/^#{1,3}\s*(.+?)\s*#*$|^(?:\*\*)?(Suitability|Planting window|Getting started|Budget|Buying list)(?:\s*\([^)]*\))?(?:\*\*))?:?$/i);
     if (heading) {
       current = (heading[1] || heading[2]).trim().toLowerCase();
       if (current.startsWith("suitability")) current = "suitability";
@@ -192,19 +200,46 @@ function priceType(line, urls, sources) {
   const normalized = normalizeLine(line);
   if (!normalized) return "unknown";
   if (/price\s+not\s+found|price\s+unavailable|unknown price|no price found/i.test(normalized)) return "unknown";
-  if (urls.length && parseMoney(normalized).length) return "sourced";
-  if (/\bestimat(?:e|ed|ion)\b|\bapprox(?:imately|\.)?\b|\babout\s+R|\baround\s+R\b/i.test(normalized)) return "estimate";
+  const hasRealAmount = parseMoney(normalized).length > 0;
+  const explicitSourced = /(?:\(\s*sourced\s*\)|sourced\s+price)/i.test(normalized) && hasRealAmount;
+  if (urls.length && hasRealAmount) return "sourced";
+  if (explicitSourced) return "sourced";
   return "estimate";
 }
 
-function makeBadge(type) {
-  const label = type === "sourced" ? "Sourced" : type === "unknown" ? "Price not found" : "Estimate";
+function makeBadge(type, allowSourcedBadge = true) {
+  const label = type === "sourced" ? (allowSourcedBadge ? "Sourced" : "Estimate") : type === "unknown" ? "Price not found" : "Estimate";
   return makeElement("span", `price-badge price-${type}`, label);
 }
 
+function extractQuantity(line) {
+  const normalized = cleanText(line).replace(/^[-*•]\s*/, "").replace(/^\d+[.)]\s*/, "");
+  const match = normalized.match(/(?:^|[\s,:;])(?:(\d+(?:\.\d+)?)\s*(packet|packets|bag|bags|kg|g|bunch|bunches|seedling|seedlings|tray|trays|box|boxes|can|cans|bundle|bundles|bucket|buckets))\b/i);
+  if (!match) return "—";
+  return `${match[1]} ${match[2].toLowerCase()}`.trim();
+}
+
 function itemName(line) {
-  const cleaned = cleanText(line).replace(/^[-*•]\s*/, "").replace(/^\d+[.)]\s*/, "").replace(/\s*:\s*$/, "");
-  return cleaned.split(/\s*(?:\||—|–)\s*/)[0].trim();
+  const cleaned = cleanText(line)
+    .replace(/^[-*•]\s*/, "")
+    .replace(/^\d+[.)]\s*/, "")
+    .replace(/https?:\/\/[^\s]+/gi, "")
+    .replace(/www\.[^\s]+/gi, "")
+    .replace(/\b(?:R|ZAR)\s*(?:\d{1,3}(?:[\s,]\d{3})+|\d+)(?:\.\d{1,2})?/gi, "")
+    .replace(/\b(?:price\s+not\s+found|price\s+unavailable|unknown\s+price|no\s+price\s+found|estimate(?:d)?|sourced\s+price|\(\s*sourced\s*\)|sourced)\b/gi, "")
+    .replace(/\s*[-–—|]+\s*/g, " ")
+    .replace(/\s*[:;,]+\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  if (!cleaned) return "";
+
+  let candidate = cleaned;
+  const breakIndex = candidate.search(/\s*(?:,|:|\|)/);
+  if (breakIndex !== -1) candidate = candidate.slice(0, breakIndex).trim();
+  candidate = candidate.replace(/\s+\d+(?:\.\d+)?\s*(?:packet|packets|bag|bags|kg|g|bunch|bunches|seedling|seedlings|tray|trays|box|boxes|can|cans|bundle|bundles)\s*$/i, "").trim();
+  candidate = candidate.replace(/\s+[\-–—|]\s*$/, "").trim();
+  return candidate || "Supplier item";
 }
 
 function isSummaryLine(line) {
@@ -231,10 +266,10 @@ function parseBudgetRows(lines, sources) {
     const cells = tableCells.length > 1 ? tableCells : [];
     const name = cells.length ? cleanText(cells[0]) : itemName(normalized);
     if (!name || /^budget$/i.test(name)) continue;
-    const qty = cells[1] || (normalized.match(/\b(?:qty|quantity)\s*:?\s*([^,;|]+)/i)?.[1]?.trim()) || "—";
-    const unitCost = cells[2] || (amounts.length > 1 ? formatRand(amounts[0]) : type === "unknown" ? "—" : "—");
+    const qty = cells[1] || extractQuantity(normalized);
+    const unitCost = cells[2] || "—";
     const lineTotal = cells[3] || (amounts.length ? formatRand(amounts[amounts.length - 1]) : "—");
-    rows.push({ name, qty, unitCost, lineTotal, type });
+    rows.push({ name, qty: qty || "—", unitCost, lineTotal, type });
   }
   return rows;
 }
@@ -348,7 +383,7 @@ function renderBudget(lines, budgetAmount, sources) {
         const td = document.createElement("td");
         td.dataset.label = labels[index];
         if (index === 2 || index === 3) td.classList.add("numeric");
-        if (index === 4) td.append(makeBadge(row.type));
+        if (index === 4) td.append(makeBadge(row.type, false));
         else td.textContent = value;
         tr.append(td);
       });
@@ -367,42 +402,56 @@ function renderBuyingList(lines, sources) {
   const { section } = makePlanSection("Buying list");
   const list = makeElement("div", "supplier-list");
   const seen = new Set();
+  const cards = [];
 
   for (const raw of lines) {
     const line = normalizeLine(raw);
     if (!line) continue;
     const urls = extractUrls(line);
-    const sourceUrl = urls.find((url) => !!url) || null;
-    if (!sourceUrl) continue;
-    const url = new URL(sourceUrl);
-    const source = sources.get(sourceUrl) || { title: "", domain: url.hostname.replace(/^www\./, "") };
-    const supplierName = cleanText(source.title || source.domain || url.hostname.replace(/^www\./, ""));
-    if (!supplierName || seen.has(sourceUrl)) continue;
-    seen.add(sourceUrl);
+    const sourceUrl = urls[0] || null;
     const amounts = parseMoney(line);
-    const type = /price\s+not\s+found|price\s+unavailable|unknown price|no price found/i.test(line) ? "unknown" : (urls.length && amounts.length ? "sourced" : "estimate");
-    const itemText = itemName(line) || "Supplier item";
+    const type = /price\s+not\s+found|price\s+unavailable|unknown price|no price found/i.test(line) ? "unknown" : ((urls.length && amounts.length) || (/\(\s*sourced\s*\)|sourced\s+price/i.test(line) && amounts.length)) ? "sourced" : "estimate";
+
+    const source = sourceUrl && sources.get(sourceUrl) ? sources.get(sourceUrl) : null;
+    const supplierName = source ? cleanText(source.title || source.domain || sourceUrl) : (sourceUrl ? new URL(sourceUrl).hostname.replace(/^www\./, "") : cleanText(line).replace(/https?:\/\/[^\s]+/gi, "").replace(/\b(?:R|ZAR)\s*(?:\d{1,3}(?:[\s,]\d{3})+|\d+)(?:\.\d{1,2})?/gi, "").replace(/\b(?:price\s+not\s+found|price\s+unavailable|unknown\s+price|no\s+price\s+found|estimate(?:d)?|\(\s*sourced\s*\)|sourced\s+price|sourced)\b/gi, "").replace(/\s*[-–—|]+\s*/g, " ").replace(/\s*[,;:]+\s*/g, " ").replace(/\s{2,}/g, " ").trim() || "Supplier") || "Supplier";
+
+    const cardKey = sourceUrl || supplierName + line;
+    if (seen.has(cardKey)) continue;
+    seen.add(cardKey);
+
+    const itemText = itemName(line) || supplierName || "Supplier item";
     const priceText = amounts.length ? formatRand(amounts[amounts.length - 1]) : "—";
 
     const card = makeElement("article", "supplier-card");
     card.append(makeElement("h4", "supplier-name", supplierName));
     const meta = makeElement("div", "supplier-meta");
     meta.append(document.createTextNode(`${itemText} · ${priceText} `));
-    meta.append(makeBadge(type));
-    if (type === "estimate") meta.append(makeElement("span", "price-verify", "Verify locally"));
-    const link = document.createElement("a");
-    link.className = "supplier-link";
-    link.href = sourceUrl;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.append(document.createTextNode(`View listing at ${source.domain || url.hostname.replace(/^www\./, "")}`));
-    link.append(makeElement("span", "visually-hidden", "(opens in a new tab)"));
-    card.append(meta, link);
-    list.append(card);
-    if (list.children.length >= 3) break;
+    meta.append(makeBadge(type, true));
+    card.append(meta);
+
+    if (sourceUrl) {
+      const link = document.createElement("a");
+      link.className = "supplier-link";
+      link.href = sourceUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      const urlHost = new URL(sourceUrl).hostname.replace(/^www\./, "");
+      link.append(document.createTextNode(`View listing at ${urlHost}`));
+      link.append(makeElement("span", "visually-hidden", "(opens in a new tab)"));
+      card.append(link);
+    }
+
+    cards.push(card);
   }
 
-  if (list.children.length) section.append(list);
+  if (!cards.length) {
+    section.append(makeElement("p", "empty-listing-note", "No supplier listings were found. Check local garden centres and co-ops."));
+    return section;
+  }
+
+  const maxCards = 3;
+  cards.slice(0, maxCards).forEach((card) => list.append(card));
+  section.append(list);
   return section;
 }
 
@@ -433,11 +482,14 @@ function renderPlantingWindow(lines) {
   const combined = cleanText(lines.join(" "));
   const caution = /unsuitable|not suitable|outside (?:the )?planting|not recommended|avoid planting|poor time|wrong month/i.test(combined);
   if (caution) {
-    const firstSentence = combined.split(/[.!?](?:\s+|$)/)[0].trim();
+    const sentences = combined.match(/[^.!?]+[.!?]+(?:\s+|$)/g) || [combined];
+    const firstSentence = (sentences[0] || combined).trim();
+    const remainder = combined.slice(firstSentence.length).replace(/^[\s.?!;:]+/, "").trim();
     const callout = makeElement("div", "timing-callout");
     callout.append(makeElement("strong", "", "Timing"));
     callout.append(document.createTextNode(firstSentence || "The requested month may not be suitable; check local guidance."));
     section.append(callout);
+    if (remainder) appendTextLines(section, [remainder]);
     return section;
   }
   appendTextLines(section, lines);
@@ -497,7 +549,7 @@ function renderPlan(text, sourceList, payload) {
   );
 
   renderSources(sourceList);
-  document.querySelector("#plan-summary").textContent = `${payload.crop[0].toUpperCase()}${payload.crop.slice(1)} · ${payload.town}, ${payload.province} · ${new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 2 }).format(payload.area)} m² · ${payload.month} · ${payload.water}`;
+  document.querySelector("#plan-summary").textContent = `${payload.crop[0].toUpperCase()}${payload.crop.slice(1)} · ${payload.town}, ${payload.province} · ${new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 2 }).format(payload.area)} m² · ${payload.month}`;
 }
 
 function setFormDisabled(disabled) {
@@ -558,3 +610,6 @@ form.querySelectorAll('input[name="water"]').forEach((input) => input.addEventLi
 }));
 document.querySelector("#retry-button").addEventListener("click", () => { if (lastPayload) generatePlan(lastPayload); });
 document.querySelector("#edit-button").addEventListener("click", () => document.querySelector("#town").focus());
+window.addEventListener("resize", setFormSticky);
+window.addEventListener("load", setFormSticky);
+setFormSticky();
