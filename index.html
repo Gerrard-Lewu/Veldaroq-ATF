@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#234c38">
+  <meta name="theme-color" content="#F7F5EB">
   <meta name="description" content="A practical, locally sourced growing plan for your South African farm plot.">
   <title>Veldaroq — your growing plan</title>
   <link rel="stylesheet" href="styles.css">
@@ -11,43 +11,85 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-  <header class="topbar"><a class="brand" href="#top" aria-label="Veldaroq home"><span class="brand-mark" aria-hidden="true">v.</span> veldaroq</a><span class="region-label">GROW LOCAL · SOUTH AFRICA</span></header>
+  <header class="topbar"><div class="topbar-inner"><a class="brand" href="#top">Veldaroq</a><span class="region-label">South Africa</span></div></header>
   <main id="top">
     <section class="intro" aria-labelledby="page-title">
-      <p class="eyebrow">A clearer way to get growing</p>
-      <h1 id="page-title">Make your next<br><span>growing season count.</span></h1>
-      <p class="intro-copy">Tell us about your plot. Get a practical plan, a realistic budget and useful places to start looking—all grounded in sources you can check.</p>
-      <div class="promise"><span aria-hidden="true">✳</span> Your soil is unknown until you test it. We won’t guess.</div>
+      <h1 id="page-title">Plan your next planting</h1>
+      <p>Enter your plot details for a sourced starter plan, budget and buying list. Soil isn't tested, so we won't guess it.</p>
     </section>
 
-    <section class="workspace" aria-label="Farm plan generator">
-      <form id="farm-form" class="form-card">
-        <div class="card-heading"><span class="step">01</span><div><h2>Your growing details</h2><p>A few details help make your plan relevant.</p></div></div>
+    <div class="workspace">
+      <form id="farm-form" class="form-card" novalidate>
+        <div class="card-heading"><h2>Your plot</h2></div>
         <div class="form-grid">
-          <label class="field field-wide" for="town">Town or city<input id="town" name="town" type="text" autocomplete="address-level2" maxlength="80" placeholder="e.g. Makhanda" required></label>
-          <label class="field" for="province">Province<select id="province" name="province" required><option value="" disabled selected>Select province</option><option>Eastern Cape</option><option>Free State</option><option>Gauteng</option><option>KwaZulu-Natal</option><option>Limpopo</option><option>Mpumalanga</option><option>North West</option><option>Northern Cape</option><option>Western Cape</option></select></label>
-          <label class="field" for="crop">Crop<select id="crop" name="crop" required><option value="" disabled selected>Choose a crop</option><option value="spinach">Spinach</option><option value="cabbage">Cabbage</option><option value="tomatoes">Tomatoes</option></select></label>
-          <label class="field" for="area">Plot area <span class="unit">m²</span><input id="area" name="area" type="number" min="1" max="100000" step="any" inputmode="decimal" placeholder="e.g. 24" required></label>
-          <label class="field" for="budget">Available budget <span class="unit">ZAR</span><input id="budget" name="budget" type="number" min="1" max="100000000" step="any" inputmode="decimal" placeholder="e.g. 1500" required></label>
-          <label class="field" for="month">Intended planting month<select id="month" name="month" required><option value="" disabled selected>Choose a month</option><option>January</option><option>February</option><option>March</option><option>April</option><option>May</option><option>June</option><option>July</option><option>August</option><option>September</option><option>October</option><option>November</option><option>December</option></select></label>
-          <fieldset class="field field-wide water-field"><legend>Water access</legend><div class="radio-options"><label><input type="radio" name="water" value="Reliable irrigation" required><span>Reliable irrigation</span></label><label><input type="radio" name="water" value="Limited irrigation"><span>Limited irrigation</span></label><label><input type="radio" name="water" value="Rain-fed"><span>Rain-fed</span></label></div></fieldset>
+          <div class="field field-wide">
+            <label for="town">Town or city</label>
+            <input id="town" name="town" type="text" autocomplete="address-level2" maxlength="80" placeholder="e.g. Makhanda" required aria-describedby="town-error">
+            <p class="field-error" id="town-error" hidden></p>
+          </div>
+          <div class="field field-wide">
+            <label for="province">Province</label>
+            <select id="province" name="province" required aria-describedby="province-error"><option value="" disabled selected>Select province</option><option>Eastern Cape</option><option>Free State</option><option>Gauteng</option><option>KwaZulu-Natal</option><option>Limpopo</option><option>Mpumalanga</option><option>North West</option><option>Northern Cape</option><option>Western Cape</option></select>
+            <p class="field-error" id="province-error" hidden></p>
+          </div>
+          <div class="field field-wide">
+            <label for="crop">Crop</label>
+            <select id="crop" name="crop" required aria-describedby="crop-error"><option value="" disabled selected>Choose a crop</option><option value="spinach">Spinach</option><option value="cabbage">Cabbage</option><option value="tomatoes">Tomatoes</option></select>
+            <p class="field-error" id="crop-error" hidden></p>
+          </div>
+          <div class="field">
+            <label for="area">Plot area (m²)</label>
+            <input id="area" name="area" type="number" min="1" max="100000" step="any" inputmode="decimal" placeholder="e.g. 24" required aria-describedby="area-error">
+            <p class="field-error" id="area-error" hidden></p>
+          </div>
+          <div class="field">
+            <label for="budget">Budget (ZAR)</label>
+            <input id="budget" name="budget" type="number" min="1" max="100000000" step="any" inputmode="decimal" placeholder="e.g. 1500" required aria-describedby="budget-error">
+            <p class="field-error" id="budget-error" hidden></p>
+          </div>
+          <div class="field field-wide">
+            <label for="month">Planting month</label>
+            <select id="month" name="month" required aria-describedby="month-error"><option value="" disabled selected>Choose a month</option><option>January</option><option>February</option><option>March</option><option>April</option><option>May</option><option>June</option><option>July</option><option>August</option><option>September</option><option>October</option><option>November</option><option>December</option></select>
+            <p class="field-error" id="month-error" hidden></p>
+          </div>
+          <fieldset id="water-field" class="field field-wide water-field" aria-describedby="water-error">
+            <legend>Water access</legend>
+            <div class="radio-options">
+              <label><input type="radio" name="water" value="Reliable irrigation" required><span class="radio-mark" aria-hidden="true"></span><span class="choice-label">Reliable irrigation</span></label>
+              <label><input type="radio" name="water" value="Limited irrigation"><span class="radio-mark" aria-hidden="true"></span><span class="choice-label">Limited irrigation</span></label>
+              <label><input type="radio" name="water" value="Rain-fed"><span class="radio-mark" aria-hidden="true"></span><span class="choice-label">Rain-fed</span></label>
+            </div>
+            <p class="field-error" id="water-error" hidden></p>
+          </fieldset>
         </div>
-        <p class="privacy-note"><span aria-hidden="true">◉</span> No account, no saved plans. Your details are used only to create this plan.</p>
-        <button id="submit-button" class="primary-button" type="submit"><span>Build my growing plan</span><span aria-hidden="true">↗</span></button>
+        <p class="privacy-note">No account. Nothing is saved.</p>
+        <button id="submit-button" class="primary-button" type="submit">Build my plan</button>
       </form>
 
-      <section id="result-area" class="result-area" aria-live="polite" aria-busy="false" hidden>
-        <div id="loading" class="status-card" hidden><span class="spinner" aria-hidden="true"></span><div><h2>Putting your plan together</h2><p>Checking local growing guidance and current supplier information. This can take a little while.</p></div></div>
-        <div id="error" class="status-card error-card" role="alert" hidden><div><h2>We couldn’t make your plan just yet.</h2><p id="error-message">Please try again.</p><button id="retry-button" class="secondary-button" type="button">Try again</button></div></div>
+      <section id="result-area" class="result-area" aria-live="polite" aria-busy="false" aria-label="Your growing plan">
+        <div id="empty-state" class="empty-state">
+          <h2>Your plan will appear here</h2>
+          <ul><li>Whether the crop suits your area and month</li><li>First steps to take</li><li>An itemised budget and up to three places to buy</li></ul>
+        </div>
+        <div id="loading" class="loading-state" hidden>
+          <h2>Building your plan</h2>
+          <p>Checking local growing guidance and supplier listings. This can take up to a minute.</p>
+          <div class="loading-track" role="progressbar" aria-label="Building your plan"><span></span></div>
+        </div>
+        <div id="error" class="error-state" role="alert" hidden>
+          <h2>We couldn't build your plan</h2>
+          <p id="error-message">Please try again.</p>
+          <button id="retry-button" class="secondary-button" type="button">Try again</button>
+        </div>
         <article id="plan-card" class="plan-card" hidden>
-          <div class="plan-heading"><div><p class="eyebrow">YOUR FIELD NOTES</p><h2>Your growing plan</h2><p id="plan-summary" class="plan-summary"></p></div><button id="edit-button" class="text-button" type="button">Edit details</button></div>
+          <header class="plan-heading"><div><h2 id="plan-title" tabindex="-1">Your growing plan</h2><p id="plan-summary" class="plan-summary"></p></div><button id="edit-button" class="text-button" type="button">Edit details</button></header>
           <div id="plan-content" class="plan-content"></div>
-          <section class="sources-section" aria-labelledby="sources-title"><h3 id="sources-title">Sources to explore</h3><p class="source-note">Search references used for this response. Check current availability and local conditions before acting.</p><ol id="sources-list" class="sources-list"></ol></section>
-          <p class="disclaimer">This is general planning guidance, not a soil test or a guarantee of results. Supplier listings and prices can change; verify details directly.</p>
+          <section class="sources-section" aria-labelledby="sources-title"><h3 id="sources-title">Sources</h3><p class="source-note">Check current availability and local conditions before acting.</p><ol id="sources-list" class="sources-list"></ol></section>
+          <p class="disclaimer">General planning guidance, not a soil test or a guarantee. Prices and stock change — confirm with suppliers.</p>
         </article>
       </section>
-    </section>
+    </div>
   </main>
-  <footer><span>Made for South African growers.</span><span>Plan thoughtfully. Grow locally.</span></footer>
+  <footer><span>Made for South African growers.</span></footer>
 </body>
 </html>
