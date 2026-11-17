@@ -33,7 +33,7 @@ h1 { margin: 0 0 8px; color: var(--primary); font-size: 28px; line-height: 1.2; 
 .intro p { max-width: 760px; margin: 0; color: var(--text-secondary); }
 .workspace { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); align-items: start; gap: 32px; }
 .form-card, .result-area { min-width: 0; padding: 32px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); }
-.form-card { position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto; }
+.form-card { position: sticky; top: 24px; }
 .card-heading { margin-bottom: 24px; }
 h2 { margin: 0; color: var(--primary); font-size: 20px; line-height: 1.3; font-weight: 700; }
 .form-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
@@ -44,9 +44,11 @@ input::placeholder { color: var(--text-secondary); opacity: 1; }
 input:not([type="radio"]):hover, select:hover { border-color: var(--text); }
 input:not([type="radio"]):focus-visible, select:focus-visible { border-color: var(--primary); }
 input[aria-invalid="true"], select[aria-invalid="true"] { border: 2px solid var(--error-text); }
+input[aria-invalid="true"]:hover, select[aria-invalid="true"]:hover,
+input[aria-invalid="true"]:focus-visible, select[aria-invalid="true"]:focus-visible { border-color: var(--error-text); }
+input[aria-invalid="true"]:focus-visible, select[aria-invalid="true"]:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 input:disabled, select:disabled { border-color: var(--text-secondary); background: var(--bg); color: var(--text-secondary); cursor: not-allowed; }
 .field-error { margin: -4px 0 0; color: var(--error-text); }
-.field-error::first-letter { font-weight: 700; }
 .water-field { gap: 8px; }
 .radio-options { display: grid; grid-template-columns: 1fr; gap: 8px; }
 .radio-options label { position: relative; min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--border-control); border-radius: 8px; background: var(--surface); color: var(--text); cursor: pointer; transition: border-color 150ms ease-out, background-color 150ms ease-out; }
@@ -59,6 +61,7 @@ input:disabled, select:disabled { border-color: var(--text-secondary); backgroun
 .radio-options label:has(input:disabled) { border-color: var(--text-secondary); background: var(--bg); color: var(--text-secondary); cursor: not-allowed; }
 .water-field[aria-invalid="true"] .radio-options label { border-color: var(--error-text); }
 .water-field[aria-invalid="true"] .radio-options label:has(input:checked) { border-width: 2px; }
+.water-field[aria-invalid="true"] .radio-options label:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
 .privacy-note { margin: 24px 0 16px; }
 .primary-button, .secondary-button { min-height: 48px; padding: 8px 16px; border: 1px solid var(--border-control); border-radius: 8px; cursor: pointer; font-size: 16px; line-height: 1.4; font-weight: 600; transition: color 150ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out; }
 .primary-button { width: 100%; border-color: var(--primary); background: var(--primary); color: var(--on-primary); }
@@ -129,14 +132,9 @@ footer { min-height: 72px; display: flex; align-items: center; padding: 12px max
 [hidden] { display: none !important; }
 @media (min-width: 600px) and (max-width: 899px) {
   .workspace { grid-template-columns: minmax(0, 560px); justify-content: center; gap: 24px; }
-  .form-card { position: static; max-height: none; }
+  .form-card { position: static; }
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .field-wide { grid-column: 1 / -1; }
-}
-@media (min-width: 900px) {
-  .form-grid { gap: 16px; }
-  .radio-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .radio-options label { padding: 8px; gap: 8px; }
 }
 @media (max-width: 599px) {
   .topbar-inner, main { width: calc(100% - 32px); }
@@ -145,7 +143,7 @@ footer { min-height: 72px; display: flex; align-items: center; padding: 12px max
   h1 { font-size: 24px; }
   .workspace { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .form-card, .result-area { padding: 24px; }
-  .form-card { position: static; max-height: none; }
+  .form-card { position: static; }
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .field-wide { grid-column: auto; }
   .radio-options { grid-template-columns: minmax(0, 1fr); }

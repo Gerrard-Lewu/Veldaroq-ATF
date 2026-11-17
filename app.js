@@ -8,6 +8,10 @@ const submitButton = document.querySelector("#submit-button");
 const formControls = [...form.querySelectorAll("input, select, button")];
 let lastPayload = null;
 
+if (!window.VELDAROQ_CONFIG && typeof VELDAROQ_CONFIG !== "undefined") {
+  window.VELDAROQ_CONFIG = VELDAROQ_CONFIG;
+}
+
 const FIELD_RULES = {
   town: (field) => !field.value.trim() ? "Enter your town or city." : field.value.length > 80 ? "Town or city must be 80 characters or fewer." : "",
   province: (field) => !field.value ? "Choose your province." : "",
@@ -17,18 +21,29 @@ const FIELD_RULES = {
   month: (field) => !field.value ? "Choose your intended planting month." : ""
 };
 
+function normalizeLine(line) {
+  return cleanText(line).replace(/^[-*•]\s*/, "").replace(/^\d+[.)]\s*/, "").trim();
+}
+
 function showState(state) {
   resultArea.setAttribute("aria-busy", state === "loading" ? "true" : "false");
   emptyState.hidden = state !== "empty";
   loading.hidden = state !== "loading";
   errorPanel.hidden = state !== "error";
   planCard.hidden = state !== "plan";
-  resultArea.classList.toggle("has-error", state === "error");
+  if (state === "error") {
+    errorPanel.removeAttribute("role");
+    requestAnimationFrame(() => {
+      const heading = errorPanel.querySelector("h2");
+      heading?.focus();
+    });
+  }
 }
 
 function setFieldError(name, message) {
   const field = name === "water" ? document.querySelector("#water-field") : document.querySelector(`#${name}`);
   const error = document.querySelector(`#${name}-error`);
+  if (!error) return;
   error.textContent = message ? `Error: ${message}` : "";
   error.hidden = !message;
   if (name === "water") {
@@ -41,6 +56,7 @@ function setFieldError(name, message) {
 
 function validateField(name) {
   const field = document.querySelector(`#${name}`);
+  if (!field) return true;
   const message = FIELD_RULES[name](field);
   setFieldError(name, message);
   return !message;
@@ -79,7 +95,7 @@ function getFormData() {
 }
 
 function cleanText(text) {
-  return text.replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, "$1").replace(/\*\*/g, "").trim();
+  return String(text || "").replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, "$1").replace(/\*\*/g, "").trim();
 }
 
 function parseSections(text) {
@@ -93,6 +109,7 @@ function parseSections(text) {
       if (current.startsWith("suitability")) current = "suitability";
       if (current.startsWith("planting window")) current = "planting window";
       if (current.startsWith("getting started")) current = "getting started";
+      if (current.startsWith("budget")) current = "budget";
       if (current.startsWith("buying list")) current = "buying list";
       if (!sections.has(current)) sections.set(current, []);
       continue;
@@ -104,22 +121,25 @@ function parseSections(text) {
 }
 
 function sectionLines(sections, name) { return sections.get(name) || []; }
+
 function makeElement(tag, className, text) {
   const element = document.createElement(tag);
   if (className) element.className = className;
   if (text !== undefined) element.textContent = text;
   return element;
 }
+
 function makePlanSection(title, className = "") {
   const section = makeElement("section", `plan-section${className ? ` ${className}` : ""}`);
   const heading = makeElement("h3", "", title);
   section.append(heading);
   return { section, heading };
 }
+
 function appendTextLines(parent, lines) {
   let list = null;
   for (const raw of lines) {
-    const line = raw.trim();
+    const line = normalizeLine(raw);
     if (!line) { list = null; continue; }
     const bullet = line.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
     if (bullet) {
@@ -131,6 +151,7 @@ function appendTextLines(parent, lines) {
     }
   }
 }
+
 function sourceIndex(sources) {
   const map = new Map();
   for (const source of sources) {
@@ -141,9 +162,10 @@ function sourceIndex(sources) {
   }
   return map;
 }
+
 function extractUrls(line) {
   const found = [];
-  for (const match of line.matchAll(/(?:https?:\/\/[^\s)\]>]+|www\.[^\s)\]>]+)/gi)) {
+  for (const match of String(line || "").matchAll(/(?:https?:\/\/[^\s)\]>]+|www\.[^\s)\]>]+)/gi)) {
     const raw = match[0].replace(/[.,;:!?]+$/, "");
     try {
       const url = new URL(raw.startsWith("www.") ? `https://${raw}` : raw);
@@ -152,77 +174,164 @@ function extractUrls(line) {
   }
   return [...new Set(found)];
 }
+
 function parseMoney(line) {
-  return [...line.matchAll(/(?:R\s*)((?:\d{1,3}(?:[\s,]\d{3})+|\d+)(?:\.\d{1,2})?)/gi)]
-    .map((match) => Number(match[1].replace(/[\s,]/g, ""))).filter(Number.isFinite);
+  const normalized = cleanText(line);
+  const matches = [...normalized.matchAll(/(?:^|[^A-Za-z])((?:R|ZAR)\s*(?:\d{1,3}(?:[\s,]\d{3})+|\d+)(?:\.\d{1,2})?)/gi)];
+  return matches
+    .map((match) => Number(match[1].replace(/^(?:R|ZAR)/i, "").replace(/[\s,]/g, "")))
+    .filter(Number.isFinite);
 }
+
 function formatRand(amount) {
-  return `R ${new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 2 }).format(amount)}`;
+  const safe = Number.isFinite(amount) ? amount : 0;
+  return `R ${new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 2 }).format(safe)}`;
 }
+
 function priceType(line, urls, sources) {
-  if (/price\s+not\s+found|price\s+unavailable|unknown price|\bunknown\b/i.test(line)) return "unknown";
-  if (/\bestimat(?:e|ed|ion)\b|\bapprox(?:imately|\.)?\b|\babout\s+R/i.test(line)) return "estimate";
-  if (urls.some((url) => sources.has(url))) return "sourced";
+  const normalized = normalizeLine(line);
+  if (!normalized) return "unknown";
+  if (/price\s+not\s+found|price\s+unavailable|unknown price|no price found/i.test(normalized)) return "unknown";
+  if (urls.length && parseMoney(normalized).length) return "sourced";
+  if (/\bestimat(?:e|ed|ion)\b|\bapprox(?:imately|\.)?\b|\babout\s+R|\baround\s+R\b/i.test(normalized)) return "estimate";
   return "estimate";
 }
+
 function makeBadge(type) {
   const label = type === "sourced" ? "Sourced" : type === "unknown" ? "Price not found" : "Estimate";
   return makeElement("span", `price-badge price-${type}`, label);
 }
+
 function itemName(line) {
-  return cleanText(line.replace(/^(?:[-*•]|\d+[.)])\s+/, "").split(/\s*(?:\||—|–)\s*/)[0].replace(/:\s*$/, "").trim());
+  const cleaned = cleanText(line).replace(/^[-*•]\s*/, "").replace(/^\d+[.)]\s*/, "").replace(/\s*:\s*$/, "");
+  return cleaned.split(/\s*(?:\||—|–)\s*/)[0].trim();
 }
+
+function isSummaryLine(line) {
+  const normalized = normalizeLine(line);
+  if (!normalized) return true;
+  return /^(?:budget|total|estimated total|remaining budget|remaining|shortfall|budget remaining|total cost|total budget)/i.test(normalized)
+    || /^[-*•]\s*(?:budget|total|estimated total|remaining budget|remaining|shortfall)/i.test(normalized)
+    || /^\*\*(?:budget|total|estimated total|remaining budget|remaining|shortfall)/i.test(normalized);
+}
+
 function parseBudgetRows(lines, sources) {
   const rows = [];
   for (const line of lines) {
-    if (!line || /^\s*\|?\s*:?-{3,}/.test(line) || /\b(item|quantity|qty|unit cost|line total|price type)\b/i.test(line) && /\|/.test(line)) continue;
-    const bullet = /^(?:[-*•]|\d+[.)])\s+/.test(line);
-    const urls = extractUrls(line);
-    const amounts = parseMoney(line);
-    const unknown = /price\s+not\s+found|price\s+unavailable|unknown price/i.test(line);
-    const tableCells = line.split("|").map((cell) => cell.trim()).filter(Boolean);
-    if (!bullet && tableCells.length < 2 && amounts.length === 0 && !unknown) continue;
-    if (/^(?:total|estimated total|remaining|shortfall|budget)\b/i.test(line)) continue;
-    const type = priceType(line, urls, sources);
+    const normalized = normalizeLine(line);
+    if (!normalized || /^\s*\|?\s*:?-{3,}/.test(normalized) || /\b(item|quantity|qty|unit cost|line total|price type)\b/i.test(normalized) && /\|/.test(normalized)) continue;
+    if (isSummaryLine(line)) continue;
+    const urls = extractUrls(normalized);
+    const amounts = parseMoney(normalized);
+    const unknown = /price\s+not\s+found|price\s+unavailable|unknown price|no price found/i.test(normalized);
+    const tableCells = normalized.split("|").map((cell) => cell.trim()).filter(Boolean);
+    const hasStructuredRow = tableCells.length > 1 || /\bqty\b|\bquantity\b|\bunit\s+cost\b|\bline\s+total\b/i.test(normalized);
+    if (!urls.length && !amounts.length && !unknown && !hasStructuredRow) continue;
+    const type = priceType(normalized, urls, sources);
     const cells = tableCells.length > 1 ? tableCells : [];
-    const name = cells.length ? cleanText(cells[0]) : itemName(line);
+    const name = cells.length ? cleanText(cells[0]) : itemName(normalized);
     if (!name || /^budget$/i.test(name)) continue;
-    const qty = cells[1] || (line.match(/\b(?:qty|quantity)\s*:?\s*([^,;|]+)/i)?.[1]?.trim()) || "—";
+    const qty = cells[1] || (normalized.match(/\b(?:qty|quantity)\s*:?\s*([^,;|]+)/i)?.[1]?.trim()) || "—";
     const unitCost = cells[2] || (amounts.length > 1 ? formatRand(amounts[0]) : type === "unknown" ? "—" : "—");
     const lineTotal = cells[3] || (amounts.length ? formatRand(amounts[amounts.length - 1]) : "—");
     rows.push({ name, qty, unitCost, lineTotal, type });
   }
   return rows;
 }
+
 function findAmount(lines, patterns) {
-  for (const line of lines) {
-    if (patterns.some((pattern) => pattern.test(line))) {
-      const values = parseMoney(line);
+  for (const raw of lines) {
+    const normalized = normalizeLine(raw);
+    if (!normalized) continue;
+    if (patterns.some((pattern) => pattern.test(normalized))) {
+      const values = parseMoney(normalized);
       if (values.length) return values[values.length - 1];
     }
   }
   return null;
 }
-function renderBudget(lines, budgetAmount, sources) {
-  const { section, heading } = makePlanSection("Budget");
-  const total = findAmount(lines, [/estimated\s+total/i, /total\s+(?:estimated\s+)?(?:cost|budget|for|:)/i, /^total\b/i]);
-  let remaining = findAmount(lines, [/remaining\s+budget/i, /budget\s+remaining/i, /^remaining\b/i]);
-  let shortfall = findAmount(lines, [/shortfall/i, /budget\s+deficit/i]);
-  if (remaining === null && shortfall === null && total !== null && budgetAmount !== null) {
-    const delta = Math.round((budgetAmount - total) * 100) / 100;
+
+function deriveBudgetSummary(lines, budgetAmount) {
+  let total = findAmount(lines, [/^estimated\s+total\b/i, /^total\b/i, /(?:^|\s)total\s*:/i, /total\s+cost\b/i, /estimated\s+total\s*:/i]);
+  let explicitRemaining = null;
+  let explicitShortfall = null;
+  let directTotalSet = false;
+
+  for (const raw of lines) {
+    const normalized = normalizeLine(raw);
+    if (!normalized) continue;
+    const amounts = parseMoney(normalized);
+    if (!amounts.length) continue;
+    const hasRemaining = /remaining\b/i.test(normalized);
+    const hasShortfall = /shortfall\b/i.test(normalized);
+    const hasTotal = /(?:^|\s)total\b/i.test(normalized) || /(?:^|\s)estimated\s+total\b/i.test(normalized);
+    if (hasTotal) {
+      total = amounts[amounts.length - 1];
+      directTotalSet = true;
+    }
+    if (hasShortfall && !hasRemaining) {
+      explicitShortfall = amounts[amounts.length - 1];
+    }
+    if (hasRemaining && !hasShortfall) {
+      explicitRemaining = amounts[amounts.length - 1];
+    }
+    if (/remaining\s+budget\s*\/\s*shortfall|budget\s*\/\s*shortfall/i.test(normalized)) {
+      if (total !== null && Number.isFinite(budgetAmount) && total > budgetAmount) explicitShortfall = amounts[amounts.length - 1];
+      else if (total === null || !Number.isFinite(budgetAmount) || total <= budgetAmount) explicitRemaining = amounts[amounts.length - 1];
+    }
+  }
+
+  let remaining = null;
+  let shortfall = null;
+
+  if (total !== null && Number.isFinite(budgetAmount)) {
+    const delta = budgetAmount - total;
     if (delta >= 0) remaining = delta;
     else shortfall = Math.abs(delta);
   }
+
+  if (explicitShortfall !== null) {
+    shortfall = explicitShortfall;
+    remaining = null;
+  }
+  if (explicitRemaining !== null && shortfall === null) {
+    remaining = explicitRemaining;
+  }
+
+  if (total !== null && Number.isFinite(budgetAmount) && total <= budgetAmount && remaining === null) {
+    remaining = budgetAmount - total;
+  }
+  if (total !== null && Number.isFinite(budgetAmount) && total > budgetAmount && shortfall === null) {
+    shortfall = total - budgetAmount;
+  }
+
+  return { total, remaining, shortfall };
+}
+
+function renderBudget(lines, budgetAmount, sources) {
+  const { section } = makePlanSection("Budget");
+  const summary = deriveBudgetSummary(lines, budgetAmount);
+  const total = summary.total;
+  const remaining = summary.remaining;
+  const shortfall = summary.shortfall;
+
   const band = makeElement("div", "budget-band");
-  const figures = [["Your budget", budgetAmount, ""], ["Estimated total", total, ""], [shortfall !== null ? "Shortfall" : "Remaining", shortfall ?? remaining, shortfall !== null ? "shortfall" : ""]];
-  for (const [label, amount, modifier] of figures) {
-    const figure = makeElement("div", `budget-figure${modifier ? ` ${modifier}` : ""}`);
+  const budgetFigure = [
+    ["Your budget", Number.isFinite(budgetAmount) ? budgetAmount : null],
+    ["Estimated total", total],
+    [shortfall !== null ? "Shortfall" : "Remaining", shortfall !== null ? shortfall : remaining]
+  ];
+  for (const [label, amount] of budgetFigure) {
+    const figure = makeElement("div", `budget-figure${label === "Shortfall" ? " shortfall" : ""}`);
     figure.append(makeElement("span", "", label), makeElement("strong", "", amount === null ? "Not stated" : formatRand(amount)));
     band.append(figure);
   }
   section.append(band);
+
   const rows = parseBudgetRows(lines, sources);
-  if (rows.some((row) => row.type !== "sourced")) section.append(makeElement("p", "price-note", "Total includes estimates and excludes items with no price found. Estimates: verify locally."));
+  if (rows.some((row) => row.type !== "sourced")) {
+    section.append(makeElement("p", "price-note", "Total includes estimates and excludes items with no price found. Estimates: verify locally."));
+  }
   if (rows.length) {
     const wrap = makeElement("div", "budget-table-wrap");
     const table = makeElement("table", "budget-table");
@@ -251,78 +360,95 @@ function renderBudget(lines, budgetAmount, sources) {
   } else {
     appendTextLines(section, lines);
   }
-  return { section, heading };
+  return section;
 }
+
 function renderBuyingList(lines, sources) {
   const { section } = makePlanSection("Buying list");
   const list = makeElement("div", "supplier-list");
-  let count = 0;
-  for (const line of lines) {
-    if (!line || count >= 3) continue;
+  const seen = new Set();
+
+  for (const raw of lines) {
+    const line = normalizeLine(raw);
+    if (!line) continue;
     const urls = extractUrls(line);
-    const matchUrl = urls.find((url) => sources.has(url));
-    if (!matchUrl) continue;
-    const source = sources.get(matchUrl);
-    const name = itemName(line).replace(/\s*https?:\/\/\S+/g, "").replace(/\s*\[[^\]]+\]\([^)]*\)/g, "").trim() || source.title || source.domain;
+    const sourceUrl = urls.find((url) => !!url) || null;
+    if (!sourceUrl) continue;
+    const url = new URL(sourceUrl);
+    const source = sources.get(sourceUrl) || { title: "", domain: url.hostname.replace(/^www\./, "") };
+    const supplierName = cleanText(source.title || source.domain || url.hostname.replace(/^www\./, ""));
+    if (!supplierName || seen.has(sourceUrl)) continue;
+    seen.add(sourceUrl);
     const amounts = parseMoney(line);
-    const type = priceType(line, urls, sources);
-    const item = name.replace(/(?:price\s+not\s+found|price\s+unavailable|\bestimat(?:e|ed)\b.*)$/i, "").trim() || "Listed supplier";
+    const type = /price\s+not\s+found|price\s+unavailable|unknown price|no price found/i.test(line) ? "unknown" : (urls.length && amounts.length ? "sourced" : "estimate");
+    const itemText = itemName(line) || "Supplier item";
+    const priceText = amounts.length ? formatRand(amounts[amounts.length - 1]) : "—";
+
     const card = makeElement("article", "supplier-card");
-    card.append(makeElement("h4", "supplier-name", item));
+    card.append(makeElement("h4", "supplier-name", supplierName));
     const meta = makeElement("div", "supplier-meta");
-    meta.append(document.createTextNode(`${item}${amounts.length ? ` · ${formatRand(amounts[amounts.length - 1])}` : " · —"} `), makeBadge(type));
+    meta.append(document.createTextNode(`${itemText} · ${priceText} `));
+    meta.append(makeBadge(type));
     if (type === "estimate") meta.append(makeElement("span", "price-verify", "Verify locally"));
     const link = document.createElement("a");
     link.className = "supplier-link";
-    link.href = matchUrl;
+    link.href = sourceUrl;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    link.append(document.createTextNode(`View listing at ${source.domain} `));
+    link.append(document.createTextNode(`View listing at ${source.domain || url.hostname.replace(/^www\./, "")}`));
     link.append(makeElement("span", "visually-hidden", "(opens in a new tab)"));
     card.append(meta, link);
     list.append(card);
-    count += 1;
+    if (list.children.length >= 3) break;
   }
-  if (count) section.append(list);
-  else appendTextLines(section, lines.filter((line) => !extractUrls(line).length));
+
+  if (list.children.length) section.append(list);
   return section;
 }
+
 function renderSuitability(lines) {
   const { section, heading } = makePlanSection("Suitability", "suitability-section");
   const sourceText = lines.map(cleanText).join(" ");
-  let status = "Suitable";
-  let statusClass = "status-suitable";
-  if (/not\s+recommend|unsuitable|not\s+suitable|should\s+not\s+plant|avoid\s+plant/i.test(sourceText)) {
+  const normalizedText = sourceText.replace(/\s+/g, " ").trim();
+  let status = "Check timing";
+  let statusClass = "status-caution";
+
+  if (/\bnot\s+recommended\b|\bnot\s+suitable\b|\bunsuitable\b|\bshould\s+not\s+plant\b|\bavoid\s+planting\b/i.test(normalizedText)) {
     status = "Not recommended";
     statusClass = "status-unsuitable";
-  } else if (/check\s+timing|uncertain|caution|condition(?:al)?|may\s+not\s+be\s+suitable/i.test(sourceText)) {
-    status = "Check timing";
-    statusClass = "status-caution";
+  } else if (/\b(?:suitable|good fit)\b.*\b(?:for|with)\b.*\b(?:this|the)\b.*\b(?:month|planting\s+window)\b|\b(?:month|planting\s+window)\b.*\b(?:suitable|good fit)\b/i.test(normalizedText)) {
+    status = "Suitable";
+    statusClass = "status-suitable";
   }
+
   heading.classList.add("suitability-heading");
   heading.append(makeElement("span", `status-badge ${statusClass}`, status));
   appendTextLines(section, lines);
   section.append(makeElement("p", "soil-note", "Soil not tested — results depend on a soil test"));
   return section;
 }
+
 function renderPlantingWindow(lines) {
   const { section } = makePlanSection("Planting window");
-  const combined = lines.map(cleanText).join(" ");
+  const combined = cleanText(lines.join(" "));
   const caution = /unsuitable|not suitable|outside (?:the )?planting|not recommended|avoid planting|poor time|wrong month/i.test(combined);
   if (caution) {
+    const firstSentence = combined.split(/[.!?](?:\s+|$)/)[0].trim();
     const callout = makeElement("div", "timing-callout");
     callout.append(makeElement("strong", "", "Timing"));
-    callout.append(document.createTextNode(combined || "The requested month may not be suitable; check local guidance."));
+    callout.append(document.createTextNode(firstSentence || "The requested month may not be suitable; check local guidance."));
     section.append(callout);
+    return section;
   }
   appendTextLines(section, lines);
   return section;
 }
+
 function renderGettingStarted(lines) {
   const { section } = makePlanSection("Getting started");
   const list = document.createElement("ol");
   for (const raw of lines) {
-    const line = raw.trim();
+    const line = normalizeLine(raw);
     if (!line) continue;
     const step = line.match(/^(?:[-*•]|\d+[.)])\s+(.+)$/);
     list.append(makeElement("li", "", cleanText(step ? step[1] : line)));
@@ -330,6 +456,7 @@ function renderGettingStarted(lines) {
   if (list.children.length) section.append(list);
   return section;
 }
+
 function renderSources(sources) {
   const list = document.querySelector("#sources-list");
   list.replaceChildren();
@@ -349,6 +476,7 @@ function renderSources(sources) {
     list.append(li);
   }
 }
+
 function renderPlan(text, sourceList, payload) {
   const content = document.querySelector("#plan-content");
   content.replaceChildren();
@@ -359,22 +487,34 @@ function renderPlan(text, sourceList, payload) {
   const gettingStarted = sectionLines(sections, "getting started");
   const budgetLines = sectionLines(sections, "budget");
   const buyingLines = sectionLines(sections, "buying list");
-  content.append(renderSuitability(suitability), renderPlantingWindow(windowLines), renderGettingStarted(gettingStarted), renderBudget(budgetLines, payload.budget, sources), renderBuyingList(buyingLines, sources));
+
+  content.append(
+    renderSuitability(suitability),
+    renderPlantingWindow(windowLines),
+    renderGettingStarted(gettingStarted),
+    renderBudget(budgetLines, payload.budget, sources),
+    renderBuyingList(buyingLines, sources)
+  );
+
   renderSources(sourceList);
   document.querySelector("#plan-summary").textContent = `${payload.crop[0].toUpperCase()}${payload.crop.slice(1)} · ${payload.town}, ${payload.province} · ${new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 2 }).format(payload.area)} m² · ${payload.month} · ${payload.water}`;
 }
+
 function setFormDisabled(disabled) {
   formControls.forEach((control) => { control.disabled = disabled; });
   submitButton.setAttribute("aria-disabled", disabled ? "true" : "false");
   submitButton.textContent = disabled ? "Building your plan…" : "Build my plan";
 }
+
 function focusSuccessfulResult() {
   const title = document.querySelector("#plan-title");
+  if (!title) return;
   title.focus({ preventScroll: true });
   if (window.matchMedia("(max-width: 599px)").matches) {
     title.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   }
 }
+
 async function generatePlan(payload) {
   const apiUrl = window.VELDAROQ_CONFIG?.apiUrl;
   setFormDisabled(true);
@@ -409,6 +549,7 @@ form.addEventListener("submit", (event) => {
 });
 for (const name of Object.keys(FIELD_RULES)) {
   const control = document.querySelector(`#${name}`);
+  if (!control) continue;
   control.addEventListener("input", () => { if (control.getAttribute("aria-invalid") === "true") validateField(name); });
   control.addEventListener("change", () => { if (control.getAttribute("aria-invalid") === "true") validateField(name); });
 }
