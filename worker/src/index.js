@@ -60,40 +60,51 @@ function sanitiseForLog(value, env, farm) {
     .filter((item) => item !== undefined && item !== null && String(item).length > 0)
     .map(String)
     .sort((a, b) => b.length - a.length);
-  for (const secret of privateValues) {
-    message = message.replaceAll(secret, "[redacted]");
-  }
+  for (const privateValue of privateValues) message = message.replaceAll(privateValue, "[redacted]");
   return message.replace(/\s+/g, " ").trim().slice(0, 240) || "Upstream request failed";
 }
 
-async function getProviderError(response, env, farm) {
-  let data = {};
-  try { data = await response.json(); } catch { /* Upstream may return non-JSON. */ }
-  const error = data?.error || {};
-  const codeValue = error.code ?? error.status ?? response.status;
-  const code = String(codeValue).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 48) || String(response.status);
-  const message = sanitiseForLog(error.message, env, farm);
+async function logUpstreamFailure(response, env, farm) {
+  let payload = {};
+  try { payload = await response.json(); } catch { /* Upstream may return non-JSON. */ }
+  const upstreamError = payload?.error || {};
+  const code = String(upstreamError.code ?? upstreamError.status ?? response.status).replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 48) || String(response.status);
+  const message = sanitiseForLog(upstreamError.message, env, farm);
   console.error(JSON.stringify({ event: "gemini_upstream_error", status: response.status, code, message }));
 }
 
 function hasRequiredSections(text) {
-  const headings = text.match(/^\s{0,3}#{0,3}\s*(Suitability|Planting window|Getting started|Budget|Buying list)\b/im);
-  if (!headings) return false;
   return REQUIRED_SECTIONS.every((section) => new RegExp(`^\\s{0,3}#{0,3}\\s*${section}\\b`, "im").test(text));
 }
 
-function collectGroundingSources(candidate) {
+function collectGrounding(candidate) {
   const chunks = candidate?.groundingMetadata?.groundingChunks || [];
-  const sources = [...new Map(chunks.map((chunk) => {
-    const web = chunk.web;
-    if (!web?.uri) return null;
+  const sources = [];
+  const sourceIndexByChunk = new Map();
+  const sourceByUrl = new Map();
+  chunks.forEach((chunk, chunkIndex) => {
+    if (!chunk?.web?.uri) return;
     try {
-      const url = new URL(web.uri);
-      if (url.protocol !== "https:") return null;
-      return [url.href, { url: url.href, title: String(web.title || url.hostname).slice(0, 180), snippet: String(web.snippet || "").slice(0, 300) }];
-    } catch { return null; }
-  }).filter(Boolean)).values()].slice(0, 10);
-  return sources;
+      const url = new URL(chunk.web.uri);
+      if (url.protocol !== "https:") return;
+      let sourceIndex = sourceByUrl.get(url.href);
+      if (sourceIndex === undefined && sources.length < 20) {
+        sourceIndex = sources.length;
+        sourceByUrl.set(url.href, sourceIndex);
+        sources.push({ url: url.href, title: String(chunk.web.title || url.hostname).slice(0, 180), snippet: String(chunk.web.snippet || "").slice(0, 300) });
+      }
+      if (sourceIndex !== undefined) sourceIndexByChunk.set(chunkIndex, sourceIndex);
+    } catch { /* Ignore malformed grounding URLs. */ }
+  });
+
+  const groundingSupports = (candidate?.groundingMetadata?.groundingSupports || [])
+    .map((support) => ({
+      text: String(support.segment?.text || "").slice(0, 500),
+      sourceIndexes: [...new Set((support.groundingChunkIndices || []).map((index) => sourceIndexByChunk.get(index)).filter((index) => index !== undefined))]
+    }))
+    .filter((support) => support.text && support.sourceIndexes.length);
+
+  return { sources: sources.slice(0, 10), groundingSupports };
 }
 
 export default {
@@ -167,7 +178,7 @@ export default {
     }
 
     if (!apiResponse.ok) {
-      await getProviderError(apiResponse, env, farm);
+      await logUpstreamFailure(apiResponse, env, farm);
       return json({ error: apiResponse.status === 429 ? "The plan service is busy. Please wait a moment and retry." : "The plan service couldn’t complete that request. Please retry." }, apiResponse.status === 429 ? 503 : 502, configuredOrigin);
     }
 
@@ -178,13 +189,13 @@ export default {
     }
     const candidate = data.candidates?.[0];
     const text = (candidate?.content?.parts || []).map((part) => typeof part.text === "string" ? part.text : "").join("\n").trim();
-    if (candidate?.finishReason === "MAX_TOKENS" || !text || text.length > MAX_OUTPUT_CHARS || !hasRequiredSections(text)) {
+    if ((candidate?.finishReason && candidate.finishReason !== "STOP") || !text || text.length > MAX_OUTPUT_CHARS || !hasRequiredSections(text)) {
       return json({ error: "The plan response was incomplete. Please retry." }, 502, configuredOrigin);
     }
-    const sources = collectGroundingSources(candidate);
-    if (sources.length === 0 || !candidate?.groundingMetadata?.groundingSupport?.length) {
+    const grounding = collectGrounding(candidate);
+    if (grounding.sources.length === 0 || grounding.groundingSupports.length === 0) {
       return json({ error: "No verifiable Google Search references came back. Please retry." }, 502, configuredOrigin);
     }
-    return json({ text, sources }, 200, configuredOrigin);
+    return json({ text, sources: grounding.sources, groundingSupports: grounding.groundingSupports }, 200, configuredOrigin);
   }
 };
